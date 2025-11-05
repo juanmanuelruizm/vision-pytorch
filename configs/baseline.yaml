@@ -1,0 +1,10 @@
+
+
+trainer:
+  epochs: null # 100
+  batch_size: null # 32
+  learning_rate: null # 0.001
+  optimizer: null # adam
+  loss_function: null # cross_entropy
+  model: null # modelo con implementación en PyTorch
+  dataset: null # dataset con implementación en PyTorch
