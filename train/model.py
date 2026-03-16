@@ -1,38 +1,49 @@
 import torch
+import torch.nn as nn
 
-from utils.model_utils import classifier_layer, load_pretrained_model
+from utils.model_utils import load_backbone, apply_freeze
+from utils.head_utils import build_head
 
 
-class Model(torch.nn.Module):
+class Model(nn.Module):
+    '''DINOv2 model with a configurable classification head.
 
-    '''Clase base para definir el modelo a entrenar.'''
+    Combines a DINOv2 ViT backbone (loaded from Meta's local weights)
+    with a linear or MLP classification head.
 
-    def __init__(self, dir_pth: str, model_name: str, num_classes: int, loss_function: torch.nn.Module, emb_dim: int):
+    Args:
+        variant:      ViT backbone variant. Options: 'vit_small', 'vit_base',
+                      'vit_large', 'vit_giant'.
+        weights_path: Path to the .pth file with Meta-provided backbone weights.
+        num_classes:  Number of output classes.
+        head_type:    Classification head type. Options: 'linear', 'mlp'.
+                      Defaults to 'linear'.
+        freeze_ratio: Fraction of the backbone to freeze (0.0 to 1.0).
+                      0.0 = nothing frozen, 1.0 = fully frozen. Defaults to 0.0.
+        **kwargs:     Additional parameters for the head:
+                        - mlp: hidden_dim (int), dropout (float).
+    '''
 
+    def __init__(
+        self,
+        variant: str,
+        weights_path: str,
+        num_classes: int,
+        head_type: str = 'linear',
+        freeze_ratio: float = 0.0,
+        **kwargs,
+    ):
         super().__init__()
-        # Definimos las capas que conformarán nuestro modelo
-        ## Parte convolucional para extracción de características ##
-        # self.conv1 = torch.nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3)
-        # self.pool = torch.nn.MaxPool2d(kernel_size=2, stride=2)
 
-        ## Parte densa para la toma de desición por parte del modelo ##
-        # self.fc1 = torch.nn.Linear(in_features=16 * 6 * 6, out_features=120)
-        # self.fc2 = torch.nn.Linear(in_features=120, out_features=84)
-        # self.fc3 = torch.nn.Linear(in_features=84, out_features=10)
-        
-        # Si se desea cargar un modelo preentrenado y añadirle una capa de clasificación
-        # Instanciamos la función para cargar el modelo preentrenado
-        self.base = load_pretrained_model(dir_pth, model_name)
-        # Añadimos la capa de clasificación
-        self.classifier = classifier_layer(emb_dim, num_classes)
-        self.loss_function = loss_function
+        self.backbone, embed_dim = load_backbone(variant, weights_path)
+        apply_freeze(self.backbone, freeze_ratio)
+        self.head = build_head(head_type, embed_dim, num_classes, **kwargs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        '''Definimos la arquitectura del modelo.'''
+        '''Forward pass: backbone → classification head.
 
-        # En mi caso paso solo por base y clasificador porque la idea es  finetunear un modelo preentrenado.
-        # Pasamos la entrada por la base del modelo
-        x = self.base(x)
-        # Pasamos la salida por la capa de clasificación
-        x = self.classifier(x)
-        return x
+        DINOv2 returns the CLS token as the global image representation
+        (shape: [B, embed_dim]), which is passed directly to the head.
+        '''
+        features = self.backbone(x)
+        return self.head(features)
