@@ -1,6 +1,8 @@
 # vision-pytorch
 
 ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 ![Status](https://img.shields.io/badge/Status-In%20Development-yellow)
 
 Modular PyTorch pipeline for training and fine-tuning vision models based on DINOv2 (Meta) backbones over ViT architectures.
@@ -33,6 +35,25 @@ vision-pytorch/
 | `vit_base` | `dinov2_vitb14` | 768 |
 | `vit_large` | `dinov2_vitl14` | 1024 |
 | `vit_giant` | `dinov2_vitg14` | 1536 |
+
+## Obtaining DINOv2 Weights
+
+The pipeline requires local `.pth` weight files from Meta's DINOv2. Download them from the [facebookresearch/dinov2](https://github.com/facebookresearch/dinov2) repository:
+
+| Variant | Direct download |
+|---|---|
+| `vit_small` | [dinov2_vits14_pretrain.pth](https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth) |
+| `vit_base` | [dinov2_vitb14_pretrain.pth](https://dl.fbaipublicfiles.com/dinov2/dinov2_vitb14/dinov2_vitb14_pretrain.pth) |
+| `vit_large` | [dinov2_vitl14_pretrain.pth](https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth) |
+| `vit_giant` | [dinov2_vitg14_pretrain.pth](https://dl.fbaipublicfiles.com/dinov2/dinov2_vitg14/dinov2_vitg14_pretrain.pth) |
+
+Place the downloaded file anywhere and point `weights_path` in your config to it. Example:
+
+```bash
+mkdir weights
+# Download vit_base (recommended starting point)
+curl -L https://dl.fbaipublicfiles.com/dinov2/dinov2_vitb14/dinov2_vitb14_pretrain.pth -o weights/dinov2_vitb14.pth
+```
 
 ## Configuration
 
@@ -69,6 +90,10 @@ dataset:
 - `1.0` — backbone fully frozen, only the head trains (linear probe)
 - `0.5` — embedding layers + first 50% of transformer blocks frozen
 
+**`head.type`** selects the classification head:
+- `linear` — single linear layer; fast, works well as linear probe
+- `mlp` — Linear → GELU → Dropout → Linear; better for full fine-tuning
+
 ## Usage
 
 ```bash
@@ -94,9 +119,22 @@ At the end of each epoch the trainer saves:
 - `checkpoints_dir/checkpoint_epoch_NNN.pth` — epoch checkpoint
 - `checkpoints_dir/best_model.pth` — best model by validation accuracy
 
+To resume training from a checkpoint, load the saved state dict before calling `trainer.train()`.
+
 ## Requirements
 
 - Python 3.10+
 - torch >= 2.0.0
 - torchvision >= 0.15.0
 - pyyaml >= 6.0
+
+## License
+
+This project is licensed under the MIT License. Feel free to use, modify, and distribute it.
+
+## Author
+
+**Juan Manuel Ruiz Muñoz**
+
+- LinkedIn: [Juan Manuel Ruiz Muñoz](https://www.linkedin.com/in/juan-manuel-ruiz-mu%C3%B1oz/)
+- GitHub: [@juanmanuelruizm](https://github.com/juanmanuelruizm)
