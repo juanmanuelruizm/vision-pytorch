@@ -1,4 +1,8 @@
-'''Training entry point.
+'''Training pipeline entry point.
+
+Trains a DINOv2/DINOv3 backbone with a classification head, logging
+loss, accuracy and macro F1 per epoch, and saving checkpoints plus a
+history.json with the full metric history.
 
 Usage:
     python train.py --config configs/baseline.yaml
@@ -7,43 +11,21 @@ import argparse
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
 
-from train.model import Model
+from train.model import build_model_from_config
 from train.trainer import Trainer
 from utils.config_utils import load_config
+from utils.data_utils import build_train_loader, build_eval_loader
 
-
-# ------------------------------------------------------------------
-# Image transforms for DINOv2
-# DINOv2 uses patch size 14; 224 = 16×14 (divisible by 14).
-# Normalization with ImageNet statistics.
-# ------------------------------------------------------------------
-_IMAGENET_MEAN = (0.485, 0.456, 0.406)
-_IMAGENET_STD  = (0.229, 0.224, 0.225)
-
-TRANSFORM_TRAIN = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(_IMAGENET_MEAN, _IMAGENET_STD),
-])
-
-TRANSFORM_VAL = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(_IMAGENET_MEAN, _IMAGENET_STD),
-])
 
 # ------------------------------------------------------------------
 # Builder helpers
 # ------------------------------------------------------------------
 
 _OPTIMIZERS = {
-    'adam': torch.optim.Adam,
-    'sgd':  torch.optim.SGD,
+    'adam':  torch.optim.Adam,
+    'adamw': torch.optim.AdamW,
+    'sgd':   torch.optim.SGD,
 }
 
 _LOSSES = {
@@ -59,20 +41,6 @@ def build_loss(name: str) -> nn.Module:
     return _LOSSES[name]()
 
 
-def build_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
-    dataset_cfg = cfg['dataset']
-    batch_size  = cfg['training']['batch_size']
-
-    train_ds = datasets.ImageFolder(dataset_cfg['train_path'], transform=TRANSFORM_TRAIN)
-    val_ds   = datasets.ImageFolder(dataset_cfg['val_path'],   transform=TRANSFORM_VAL)
-
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=4, pin_memory=True)
-    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-
-    print(f"Dataset → train: {len(train_ds)} images | val: {len(val_ds)} images | classes: {train_ds.classes}")
-    return train_loader, val_loader
-
-
 # ------------------------------------------------------------------
 # Main pipeline
 # ------------------------------------------------------------------
@@ -80,24 +48,18 @@ def build_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
 def main(config_path: str) -> None:
     cfg = load_config(config_path)
 
-    training   = cfg['training']
-    model_cfg  = cfg['model']
-    head_cfg   = model_cfg['head']
+    training  = cfg['training']
+    model_cfg = cfg['model']
+
+    if model_cfg['head']['type'] == 'none':
+        raise ValueError(
+            "head.type='none' is feature-extractor mode and cannot be trained "
+            "with a classification loss. Use extract_features.py instead, or "
+            "set head.type to 'linear'/'mlp'."
+        )
 
     # Build model
-    head_kwargs = {}
-    if head_cfg['type'] == 'mlp':
-        head_kwargs['hidden_dim'] = head_cfg['hidden_dim']
-        head_kwargs['dropout']    = head_cfg.get('dropout', 0.0)
-
-    model = Model(
-        variant      = model_cfg['variant'],
-        weights_path = model_cfg['weights_path'],
-        num_classes  = model_cfg['num_classes'],
-        head_type    = head_cfg['type'],
-        freeze_ratio = float(model_cfg['freeze_ratio']),
-        **head_kwargs,
-    )
+    model = build_model_from_config(model_cfg)
 
     # Only pass parameters that require gradients to the optimizer
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -105,16 +67,24 @@ def main(config_path: str) -> None:
     loss_fn   = build_loss(training['loss_function'])
 
     # Dataloaders
-    train_loader, val_loader = build_dataloaders(cfg)
+    dataset_cfg  = cfg['dataset']
+    batch_size   = training['batch_size']
+    train_loader = build_train_loader(dataset_cfg['train_path'], batch_size)
+    val_loader   = build_eval_loader(dataset_cfg['val_path'], batch_size)
+    print(
+        f"Dataset → train: {len(train_loader.dataset)} images | "
+        f"val: {len(val_loader.dataset)} images | "
+        f"classes: {train_loader.dataset.classes}"
+    )
 
     # Training
-    checkpoints_dir = training.get('checkpoints_dir', 'checkpoints')
+    checkpoints_dir = training.get('checkpoints_dir') or 'checkpoints'
     trainer = Trainer(model, optimizer, loss_fn, training['device'], checkpoints_dir)
     trainer.train(train_loader, val_loader, training['epochs'])
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='DINOv2 training pipeline')
+    parser = argparse.ArgumentParser(description='DINOv2/DINOv3 training pipeline')
     parser.add_argument('--config', type=str, required=True, help='Path to the YAML configuration file')
     args = parser.parse_args()
 

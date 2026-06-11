@@ -2,22 +2,28 @@ training:
   epochs: null              # e.g. 50
   batch_size: null          # e.g. 32
   learning_rate: null       # e.g. 0.0001
-  optimizer: null           # adam | sgd
+  optimizer: null           # adam | adamw | sgd
   loss_function: null       # cross_entropy
   device: null              # cuda | cpu
   checkpoints_dir: null     # e.g. checkpoints/experiment_01
 
 model:
-  variant: null             # vit_small | vit_base | vit_large | vit_giant
-  weights_path: null        # e.g. weights/dinov2_vitb14.pth
-  num_classes: null         # e.g. 10
-  freeze_ratio: null        # 0.0 (nothing frozen) → 1.0 (fully frozen)
+  family: null              # dinov2 | dinov3
+  variant: null             # dinov2: vit_small | vit_base | vit_large | vit_giant
+                            # dinov3: vit_small | vit_small_plus | vit_base | vit_large | vit_huge_plus | vit_7b
+  weights_path: null        # e.g. weights/dinov3_vitb16_pretrain_lvd1689m.pth
+  num_classes: null         # e.g. 10 (not required when head.type=none)
+  freeze_ratio: null        # 0.0 (full fine-tuning) → 1.0 (frozen backbone / linear probe)
 
   head:
-    type: null              # linear | mlp
+    type: null              # linear | mlp | none (none = raw feature extractor)
     hidden_dim: null        # mlp only, e.g. 512
     dropout: null           # mlp only, e.g. 0.1
 
 dataset:
   train_path: null          # e.g. data/train
   val_path: null            # e.g. data/val
+  test_path: null           # e.g. data/test (used by evaluate.py)
+
+evaluation:
+  topk: [1, 5]              # top-k accuracies reported by evaluate.py
