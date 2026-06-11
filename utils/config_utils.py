@@ -2,19 +2,20 @@ from pathlib import Path
 
 import yaml
 
+from utils.model_utils import BACKBONE_FAMILIES
+
 
 # Required fields per section
 _REQUIRED_FIELDS = {
     'training':      ['epochs', 'batch_size', 'learning_rate', 'optimizer', 'loss_function', 'device'],
-    'model':         ['variant', 'weights_path', 'num_classes', 'freeze_ratio'],
+    'model':         ['family', 'variant', 'weights_path', 'freeze_ratio'],
     'model.head':    ['type'],
     'dataset':       ['train_path', 'val_path'],
 }
 
-_VALID_OPTIMIZERS   = ('adam', 'sgd')
+_VALID_OPTIMIZERS   = ('adam', 'adamw', 'sgd')
 _VALID_LOSSES       = ('cross_entropy',)
-_VALID_HEAD_TYPES   = ('linear', 'mlp')
-_VALID_VARIANTS     = ('vit_small', 'vit_base', 'vit_large', 'vit_giant')
+_VALID_HEAD_TYPES   = ('linear', 'mlp', 'none')
 _VALID_DEVICES      = ('cuda', 'cpu')
 
 
@@ -81,14 +82,22 @@ def _validate_values(cfg: dict) -> None:
     if training['device'] not in _VALID_DEVICES:
         errors.append(f"  'device' must be one of {_VALID_DEVICES}.")
 
-    if model['variant'] not in _VALID_VARIANTS:
-        errors.append(f"  'variant' must be one of {_VALID_VARIANTS}.")
+    family = model['family']
+    if family not in BACKBONE_FAMILIES:
+        errors.append(f"  'family' must be one of {tuple(BACKBONE_FAMILIES)}.")
+    else:
+        valid_variants = tuple(BACKBONE_FAMILIES[family]['variants'])
+        if model['variant'] not in valid_variants:
+            errors.append(f"  'variant' must be one of {valid_variants} for family '{family}'.")
 
     if not (0.0 <= float(model['freeze_ratio']) <= 1.0):
         errors.append("  'freeze_ratio' must be between 0.0 and 1.0.")
 
     if head['type'] not in _VALID_HEAD_TYPES:
         errors.append(f"  'head.type' must be one of {_VALID_HEAD_TYPES}.")
+
+    if head['type'] != 'none' and model.get('num_classes') is None:
+        errors.append("  'num_classes' is required when head.type is 'linear' or 'mlp'.")
 
     if head['type'] == 'mlp' and head.get('hidden_dim') is None:
         errors.append("  'head.hidden_dim' is required when type='mlp'.")

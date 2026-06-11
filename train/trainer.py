@@ -1,12 +1,19 @@
+import json
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from utils.metrics import MetricsTracker
+
 
 class Trainer:
-    '''Training and validation loop with checkpoint saving.
+    '''Training and validation loop with metrics tracking and checkpoint saving.
+
+    Per epoch it logs train loss/accuracy and validation loss, accuracy and
+    macro F1 (computed with MetricsTracker). The full metric history is
+    written to <checkpoints_dir>/history.json after every epoch.
 
     Args:
         model:           Model to train (instance of Model).
@@ -32,6 +39,7 @@ class Trainer:
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
         self._best_val_acc = 0.0
+        self.history       = []
 
     # ------------------------------------------------------------------
     # Training and validation steps
@@ -58,10 +66,10 @@ class Trainer:
 
         return total_loss / total, correct / total
 
-    def _validation_step(self, loader: DataLoader) -> tuple[float, float]:
+    def _validation_step(self, loader: DataLoader) -> tuple[float, dict]:
         self.model.eval()
+        tracker    = MetricsTracker()
         total_loss = 0.0
-        correct    = 0
         total      = 0
 
         with torch.no_grad():
@@ -70,11 +78,11 @@ class Trainer:
                 output = self.model(x)
                 loss   = self.loss_fn(output, y)
 
+                tracker.update(output, y)
                 total_loss += loss.item() * x.size(0)
-                correct    += (output.argmax(dim=1) == y).sum().item()
                 total      += x.size(0)
 
-        return total_loss / total, correct / total
+        return total_loss / total, tracker.compute()
 
     # ------------------------------------------------------------------
     # Main loop
@@ -98,19 +106,37 @@ class Trainer:
         '''
         for epoch in range(1, epochs + 1):
             train_loss, train_acc = self._training_step(train_loader)
-            val_loss,   val_acc   = self._validation_step(val_loader)
+            val_loss, val_metrics = self._validation_step(val_loader)
+            val_acc = val_metrics['accuracy']
 
             print(
                 f"Epoch {epoch:>3}/{epochs} | "
                 f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f} | "
-                f"Val loss:   {val_loss:.4f} | Val acc:   {val_acc:.4f}"
+                f"Val loss: {val_loss:.4f} | Val acc: {val_acc:.4f} | "
+                f"Val macro F1: {val_metrics['macro_f1']:.4f}"
             )
 
+            self.history.append({
+                'epoch':             epoch,
+                'train_loss':        train_loss,
+                'train_acc':         train_acc,
+                'val_loss':          val_loss,
+                'val_acc':           val_acc,
+                'val_macro_f1':      val_metrics['macro_f1'],
+                'val_weighted_f1':   val_metrics['weighted_f1'],
+                'val_macro_precision': val_metrics['macro_precision'],
+                'val_macro_recall':  val_metrics['macro_recall'],
+            })
+            self._save_history()
             self._save_checkpoint(epoch, val_acc)
 
     # ------------------------------------------------------------------
-    # Checkpoint management
+    # Checkpoint and history management
     # ------------------------------------------------------------------
+
+    def _save_history(self) -> None:
+        with open(self.checkpoints_dir / 'history.json', 'w', encoding='utf-8') as f:
+            json.dump(self.history, f, indent=2)
 
     def _save_checkpoint(self, epoch: int, val_acc: float) -> None:
         '''Save a checkpoint for the current epoch and update best model if improved.'''

@@ -35,16 +35,24 @@ def mlp_head(
     )
 
 
-def build_head(head_type: str, embed_dim: int, num_classes: int, **kwargs) -> nn.Module:
+def build_head(head_type: str, embed_dim: int, num_classes: int | None, **kwargs) -> nn.Module:
     '''Factory function to build a classification head.
 
     Args:
-        head_type:   Head type. Options: 'linear', 'mlp'.
+        head_type:   Head type. Options: 'linear', 'mlp', 'none'.
+                     'none' returns an Identity: the model outputs raw
+                     backbone features (feature extractor mode).
         embed_dim:   Embedding dimension of the backbone.
-        num_classes: Number of output classes.
+        num_classes: Number of output classes (ignored when type='none').
         **kwargs:    Additional parameters depending on the type:
                        - mlp: hidden_dim (int), dropout (float, optional).
     '''
+    if head_type == 'none':
+        return nn.Identity()
+
+    if num_classes is None:
+        raise ValueError(f"num_classes is required for head type '{head_type}'.")
+
     if head_type == 'linear':
         return linear_head(embed_dim, num_classes)
 
@@ -53,4 +61,4 @@ def build_head(head_type: str, embed_dim: int, num_classes: int, **kwargs) -> nn
         dropout    = kwargs.get('dropout', 0.0)
         return mlp_head(embed_dim, num_classes, hidden_dim, dropout)
 
-    raise ValueError(f"Head type '{head_type}' is not supported. Options: 'linear', 'mlp'.")
+    raise ValueError(f"Head type '{head_type}' is not supported. Options: 'linear', 'mlp', 'none'.")
